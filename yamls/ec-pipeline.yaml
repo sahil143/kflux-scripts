@@ -1,0 +1,15 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: hello-world-pipeline
+spec:
+  tasks:
+    - name: say-hello
+      taskSpec:
+        steps:
+          - name: echo
+            image: alpine
+            command:
+              - echo
+            args:
+              - "hello, world"
