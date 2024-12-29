@@ -1,0 +1,17 @@
+{
+  "name": "kflux-scripts",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "https://github.com/sahil143/kflux-scripts.git",
+  "author": "sahil143",
+  "license": "MIT",
+  "private": false,
+  "type": "module",
+  "scripts": {
+    "create-components": "zx ./scripts/components.mjs",
+    "create-applications": "zx ./scripts/applications.mjs"
+  },
+  "devDependencies": {
+    "zx": "^8.3.0"
+  }
+}
