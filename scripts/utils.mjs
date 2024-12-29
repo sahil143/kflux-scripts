@@ -86,7 +86,7 @@ export async function checkSafetyThresholds(numberOfComponents) {
   return true;
 }
 
-export function appendRandomString({ min = 0, max = 150 }) {
+export function appendRandomString({ min, max } = { min: 0, max: 150 }) {
   const chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   const length = Math.floor(Math.random() * (max - min + 1)) + min; // Random length between min and max
