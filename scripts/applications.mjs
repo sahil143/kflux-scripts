@@ -6,7 +6,7 @@ import {
   promptForNamespace,
 } from "./utils.mjs";
 
-const NoOfApplications = 20;
+const NoOfApplications = 25;
 
 export const baseApplicationConfig = {
   apiVersion: 'appstudio.redhat.com/v1alpha1',
@@ -36,7 +36,7 @@ console.log(chalk.green("Using namespace", targetNs));
 
 console.log(chalk.grey(`Creating ${NoOfApplications} applications`, allConfigs));
 
-for (let i = 11; i <= NoOfApplications; i++) {
+for (let i = 0; i <= NoOfApplications; i++) {
   // Create a deep copy of the base config
   const config = JSON.parse(JSON.stringify(baseApplicationConfig));
 

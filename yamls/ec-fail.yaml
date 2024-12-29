@@ -1,0 +1,25 @@
+apiVersion: appstudio.redhat.com/v1alpha1
+kind: EnterpriseContractPolicy
+metadata:
+  name: always-fail-policy
+spec:
+  description: "This policy will always fail all checks"
+  configuration:
+    include:
+      - always_fail
+  sources:
+    - name: Default
+      policy:
+        - |
+          package policy.always_fail
+
+          # This rule will always evaluate to true, causing the policy to pass
+          always_pass {
+            false
+          }
+
+  publicKey: |
+    -----BEGIN PUBLIC KEY-----
+    MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEGXaEV+aKKay8qOSHFrIcF0Jgb31
+    11GtBbYTjfBPVfpK/wUehb/O7YgCz9ZnOZHuaKN+CvyNGfWUPPK8OGDp0w==
+    -----END PUBLIC KEY-----
