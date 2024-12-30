@@ -6,7 +6,7 @@ import {
   getCurrentNamespace,
   promptForNamespace,
 } from "./utils.mjs";
-import { baseApplicationConfig } from "./applications.mjs";
+// import { baseApplicationConfig } from "./applications.mjs";
 
 const NumberOfComponent = 25;
 
@@ -49,19 +49,19 @@ const targetNs = await promptForNamespace(currentNs);
 console.log(chalk.green("Using namespace", targetNs));
 
 // Create application
-console.log(
-  chalk.grey(
-    `Creating application '${baseApplicationConfig.spec.displayName}'(${baseApplicationConfig.metadata.name})`,
-    allConfigs
-  )
-);
-baseApplicationConfig.metadata["namespace"] = targetNs;
+// console.log(
+//   chalk.grey(
+//     `Creating application '${baseApplicationConfig.spec.displayName}'(${baseApplicationConfig.metadata.name})`,
+//     allConfigs
+//   )
+// );
+// baseApplicationConfig.metadata["namespace"] = targetNs;
 
-await createResource(baseApplicationConfig, "application");
+// await createResource(baseApplicationConfig, "application");
 
 console.log(chalk.grey(`Creating ${NumberOfComponent} component`, allConfigs));
 
-for (let i = 11; i <= NumberOfComponent; i++) {
+for (let i = 26; i <= 25 + NumberOfComponent; i++) {
   // Create a deep copy of the base config
   const config = JSON.parse(JSON.stringify(baseComponentConfig));
 
