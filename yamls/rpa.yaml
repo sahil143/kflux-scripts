@@ -7,14 +7,14 @@ metadata:
   namespace: sbudhwar-1-tenant
 spec:
   applications:
-    - new-test-app
+    - test-application-n-components
   origin: sbudhwar-1-tenant
   pipeline: 
     pipelineRef:
       resolver: 'git'
       params:
         - name: 'url'
-          value: 'https://github.com/sahil143/pipeline-examples'
+          value: 'https://github.com/sahil143/kflux-scripts'
         - name: 'revision'
           value: 'main'
         - name: 'pathInRepo'
