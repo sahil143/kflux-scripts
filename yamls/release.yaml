@@ -13,3 +13,14 @@ spec:
               - echo
             args:
               - "hello, world"
+    - name: enterprise-contract-check
+      taskRef:
+        name: ec-task
+        bundle: quay.io/enterprise-contract/ec-task:latest
+      params:
+        - name: IMAGE_REF
+          value: your-image-reference
+        - name: POLICY_CONFIGURATION
+          value: always-pass-policy
+        - name: STRICT
+          value: "false"
