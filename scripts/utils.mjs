@@ -52,28 +52,28 @@ export async function createResource(config, type = "resource") {
   }
 }
 
-export async function checkSafetyThresholds(numberOfComponents) {
+export async function checkSafetyThresholds(numberOfComponents, resourceType = "components") {
   if (numberOfComponents > 10) {
     console.log(chalk.yellow("\n  CAUTION:"));
     console.log(
-      chalk.yellow(`You are about to create ${numberOfComponents} components.`)
+      chalk.yellow(`You are about to create ${numberOfComponents} ${resourceType}.`)
     );
     console.log(
-      chalk.yellow("Creating too many components in quick succession might:")
+      chalk.yellow(`Creating too many ${resourceType} in quick succession might:`)
     );
     console.log(chalk.yellow("  - Overload the API server"));
     console.log(chalk.yellow("  - Trigger rate limiting"));
     console.log(chalk.yellow("  - Cause failed deployments"));
     console.log(
       chalk.yellow(
-        `\nCurrent delay between components: ${DELAY / 1000} seconds`
+        `\nCurrent delay between ${resourceType}: ${DELAY / 1000} seconds`
       )
     );
 
     if (DELAY < 10000) {
       console.log(
         chalk.yellow(
-          `\nRecommended: Use a delay of at least 10 seconds between components`
+          `\nRecommended: Use a delay of at least 10 seconds between ${resourceType}`
         )
       );
     }
