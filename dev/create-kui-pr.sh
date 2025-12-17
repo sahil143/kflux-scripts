@@ -46,12 +46,12 @@ gh repo clone "$UPSTREAM_REPO" "$ROOT/infra-upstream" -- -q
 extract_sha_line14() {
   local file="$1"
   # 1) print line 14, 2) pick the first 7–40 hex run
-  sed -n '14p' "$file" | sed -nE 's/.*([0-9a-fA-F]{40}).*/\1/p' | head -n1
+  sed -n "$2" "$file" | sed -nE 's/.*([0-9a-fA-F]{40}).*/\1/p' | head -n1
 }
 
 
-BASE_SHA="$(extract_sha_line14 "$ROOT/infra-upstream/$PROD_FILE" || true)"
-TARGET_SHA="$(extract_sha_line14 "$ROOT/infra-upstream/$STG_FILE" || true)"
+BASE_SHA="$(extract_sha_line14 "$ROOT/infra-upstream/$PROD_FILE" '14p' || true)"
+TARGET_SHA="$(extract_sha_line14 "$ROOT/infra-upstream/$STG_FILE" '15p' || true)"
 
 if [[ -z "$BASE_SHA" || -z "$TARGET_SHA" ]]; then
   echo "Failed to extract SHAs via sed from line 14." >&2
