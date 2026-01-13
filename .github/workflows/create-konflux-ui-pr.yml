@@ -77,3 +77,72 @@ jobs:
         if: steps.create_pr.outputs.pr_url != ''
         run: |
           echo "✅ PR URL: ${{ steps.create_pr.outputs.pr_url }}"
+
+      - name: Send Slack notification
+        if: steps.create_pr.outputs.pr_url != ''
+        run: |
+          PR_URL="${{ steps.create_pr.outputs.pr_url }}"
+          PR_TITLE="${{ steps.prepare_pr.outputs.pr_title }}"
+          BASE_SHA="${{ steps.prepare_pr.outputs.base_sha }}"
+          TARGET_SHA="${{ steps.prepare_pr.outputs.target_sha }}"
+          KUI_REPO="${{ env.KUI_REPO }}"
+          
+          # Format SHA range for display (shortened)
+          SHORT_BASE="${BASE_SHA:0:7}"
+          SHORT_TARGET="${TARGET_SHA:0:7}"
+          SHA_RANGE="${SHORT_BASE}...${SHORT_TARGET}"
+          
+          # Create JSON payload for Slack
+          PAYLOAD=$(cat <<EOF
+          {
+            "text": "New Konflux UI PR Created - @konflux-ui",
+            "blocks": [
+              {
+                "type": "header",
+                "text": {
+                  "type": "plain_text",
+                  "text": "🚀 New Konflux UI PR Created"
+                }
+              },
+              {
+                "type": "section",
+                "fields": [
+                  {
+                    "type": "mrkdwn",
+                    "text": "*PR Title:*\n${PR_TITLE}"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*SHA Range:*\n\`${SHA_RANGE}\`"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*PR URL:*\n<${PR_URL}|View Pull Request>"
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "*Repository:*\n${KUI_REPO}"
+                  }
+                ]
+              },
+              {
+                "type": "section",
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "@konflux-ui Please review the changes in staging cluster.\n\n⚠️ *Note:* This PR deploys changes to production."
+                }
+              }
+            ]
+          }
+          EOF
+          )
+          
+          # Echo the message for now (uncomment curl below when ready to send to Slack)
+          echo "Slack notification payload:"
+          echo "$PAYLOAD"
+          
+          # Send to Slack webhook (commented out for now)
+          # curl -X POST \
+          #   -H 'Content-Type: application/json' \
+          #   -d "$PAYLOAD" \
+          #   "${{ secrets.SLACK_WEBHOOK_URL }}"
