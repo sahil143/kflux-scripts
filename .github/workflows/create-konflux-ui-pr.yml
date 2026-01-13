@@ -1,0 +1,79 @@
+name: Create Konflux UI PR
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate GitHub CLI
+        run: |
+          echo "${{ secrets.GH_PAT }}" | gh auth login --with-token
+
+      - name: Set environment variables
+        run: |
+          echo "UPSTREAM_REPO=redhat-appstudio/infra-deployments" >> $GITHUB_ENV
+          echo "FORK_REPO=sahil143/infra-deployments" >> $GITHUB_ENV
+          echo "KUI_REPO=konflux-ci/konflux-ui" >> $GITHUB_ENV
+
+      - name: Run create-kui-pr.sh script
+        id: prepare_pr
+        run: |
+          chmod +x dev/create-kui-pr.sh
+          dev/create-kui-pr.sh
+
+      - name: Create Pull Request
+        if: steps.prepare_pr.outputs.branch_name != ''
+        id: create_pr
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          UPSTREAM_REPO="${{ env.UPSTREAM_REPO }}"
+          FORK_REPO="${{ env.FORK_REPO }}"
+          BRANCH_NAME="${{ steps.prepare_pr.outputs.branch_name }}"
+          PR_TITLE="${{ steps.prepare_pr.outputs.pr_title }}"
+          
+          # Get the fork owner (username before /)
+          FORK_OWNER="${FORK_REPO%%/*}"
+          
+          # Get upstream default branch
+          BASE_BRANCH=$(gh repo view "$UPSTREAM_REPO" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo main)
+          
+          echo "Creating PR against ${UPSTREAM_REPO}:${BASE_BRANCH} from ${FORK_OWNER}:${BRANCH_NAME}"
+          
+          # Check for existing PR
+          EXISTING_PR=$(gh pr list --repo "$UPSTREAM_REPO" --head "${FORK_OWNER}:${BRANCH_NAME}" --json url --jq '.[0].url' 2>/dev/null || true)
+          
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "PR already exists: $EXISTING_PR"
+            echo "pr_url=$EXISTING_PR" >> $GITHUB_OUTPUT
+          else
+            # Create temporary file for PR body
+            PR_BODY_FILE=$(mktemp)
+            cat > "$PR_BODY_FILE" << 'EOF'
+          ${{ steps.prepare_pr.outputs.changelog_content }}
+          EOF
+            
+            PR_URL=$(gh pr create \
+              --repo "$UPSTREAM_REPO" \
+              --head "${FORK_OWNER}:${BRANCH_NAME}" \
+              --base "$BASE_BRANCH" \
+              --title "$PR_TITLE" \
+              --body-file "$PR_BODY_FILE")
+            
+            rm -f "$PR_BODY_FILE"
+            
+            echo "Created PR: $PR_URL"
+            echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Output PR URL
+        if: steps.create_pr.outputs.pr_url != ''
+        run: |
+          echo "✅ PR URL: ${{ steps.create_pr.outputs.pr_url }}"

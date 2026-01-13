@@ -145,31 +145,18 @@ pushd "$ROOT/infra-fork" >/dev/null
   git commit -m "chore: bump konflux-ui (production) ${SHORT_BASE} => ${SHORT_TGT}"
   git push downstream "$BRANCH_NAME"
 
-  # Determine upstream default branch for PR base
-  BASE_BRANCH="$(gh repo view "$UPSTREAM_REPO" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo main)"
-
-  echo "Creating PR against ${UPSTREAM_REPO}:${BASE_BRANCH}"
-
-  # Check for existing PR with same head branch
-  EXISTING_PR=$(gh pr list --repo "$UPSTREAM_REPO" --head "${FORK_REPO%%/*}:$BRANCH_NAME" --json url --jq '.[0].url' 2>/dev/null || true)
-  if [[ -n "$EXISTING_PR" ]]; then
-    echo "PR already exists: $EXISTING_PR"
-    PR_URL="$EXISTING_PR"
-  else
-    PR_URL=$(gh pr create \
-      --repo "$UPSTREAM_REPO" \
-      --head "${FORK_REPO%%/*}:$BRANCH_NAME" \
-      --base "$BASE_BRANCH" \
-      --title "$PR_TITLE" \
-      --body-file "$ROOT/konflux-ui/changelog.md")
-    echo "Created PR: $PR_URL"
-  fi
-
-  # Write to GitHub Actions output if in CI context
+  # Export data for GitHub Actions to create PR
   if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-    echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+    echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+    echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+    echo "branch_name=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
+    echo "changelog_content<<EOF" >> "$GITHUB_OUTPUT"
+    cat "$OUT_CHANGELOG" >> "$GITHUB_OUTPUT"
+    echo "EOF" >> "$GITHUB_OUTPUT"
+    echo "pr_title=$PR_TITLE" >> "$GITHUB_OUTPUT"
   fi
 
-  echo "✅ Done: PR opened with changelog as description."
+  echo "✅ Done: Branch pushed and ready for PR creation."
+  echo "   Branch: $BRANCH_NAME"
   echo "   Range: ${KUI_REPO} ${BASE_SHA}...${TARGET_SHA}"
 popd >/dev/null
