@@ -109,13 +109,12 @@ pushd "$WORK_DIR" >/dev/null
   fi
 
   # 3) Move/copy to requested output path
-  # if [[ -s changelog.md ]]; then
-  # # cat changelog.md
-  #   # cp changelog.md "$OUT_FILE"
-  # else
-  #   echo "Failed to produce changelog.md" >&2
-  #   exit 1
-  # fi
+  if [[ -s changelog.md ]]; then
+    cp changelog.md "$OUT_FILE"
+  else
+    echo "Failed to produce changelog.md" >&2
+    exit 1
+  fi
 popd >/dev/null
 
 echo "Changelog written to: $OUT_FILE"
