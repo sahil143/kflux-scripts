@@ -147,12 +147,14 @@ pushd "$ROOT/infra-fork" >/dev/null
 
   # Export data for GitHub Actions to create PR
   if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+    # Use a unique delimiter to prevent premature termination if changelog contains "EOF"
+    DELIMITER="EOF_$(date +%s)_$$"
     echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
     echo "target_sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
     echo "branch_name=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
-    echo "changelog_content<<EOF" >> "$GITHUB_OUTPUT"
+    echo "changelog_content<<${DELIMITER}" >> "$GITHUB_OUTPUT"
     cat "$OUT_CHANGELOG" >> "$GITHUB_OUTPUT"
-    echo "EOF" >> "$GITHUB_OUTPUT"
+    echo "$DELIMITER" >> "$GITHUB_OUTPUT"
     echo "pr_title=$PR_TITLE" >> "$GITHUB_OUTPUT"
   fi
 
