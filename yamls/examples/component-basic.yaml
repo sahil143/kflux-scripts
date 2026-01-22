@@ -1,0 +1,11 @@
+apiVersion: kflux.dev/v1alpha1
+kind: Component
+metadata:
+  name: example-component-basic
+spec:
+  source:
+    url: https://github.com/example-org/example-repo
+    versions:
+      - name: main
+        revision: main
+

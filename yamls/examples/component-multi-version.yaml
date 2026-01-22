@@ -1,0 +1,28 @@
+apiVersion: kflux.dev/v1alpha1
+kind: Component
+metadata:
+  name: example-component-multi-version
+spec:
+  containerImage: quay.io/example-org/example-component
+  repositorySettings:
+    commentStrategy: disable_all
+  skipOffboardingPr: true
+  source:
+    url: https://github.com/example-org/example-repo
+    dockerfileUri: Dockerfile
+    versions:
+      - name: Version_1_0
+        revision: ver-1.0
+      - name: Test
+        revision: test
+        context: ./test
+        dockerfileUri: test.Dockerfile
+        skipBuilds: true
+      - name: DifferentPipeline
+        revision: different_branch
+        buildPipeline:
+          pullAndPush:
+            pipelineSpecFromBundle:
+              name: docker-build-oci-ta
+              bundle: latest
+

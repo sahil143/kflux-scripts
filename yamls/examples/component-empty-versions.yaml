@@ -1,0 +1,9 @@
+apiVersion: kflux.dev/v1alpha1
+kind: Component
+metadata:
+  name: example-component-empty-versions
+spec:
+  source:
+    url: https://github.com/example-org/example-repo
+    versions: []
+

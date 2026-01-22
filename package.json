@@ -11,7 +11,8 @@
     "create-components": "zx ./scripts/components.mjs",
     "create-applications": "zx ./scripts/applications.mjs",
     "create-it": "zx ./scripts/integrationtest.mjs",
-    "create-releases": "zx ./scripts/releases.mjs"
+    "create-releases": "zx ./scripts/releases.mjs",
+    "create-mock-components": "zx ./scripts/mock-components.mjs"
   },
   "devDependencies": {
     "zx": "^8.3.0"

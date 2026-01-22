@@ -1,0 +1,23 @@
+apiVersion: kflux.dev/v1alpha1
+kind: Component
+metadata:
+  name: example-component-with-actions
+spec:
+  actions:
+    triggerPushBuild: main
+    triggerPushBuilds:
+      - main
+      - Test
+    createPipelineConfigurationPr:
+      allVersions: false
+      versions:
+        - main
+        - Test
+  source:
+    url: https://github.com/example-org/example-repo
+    versions:
+      - name: main
+        revision: main
+      - name: Test
+        revision: test
+

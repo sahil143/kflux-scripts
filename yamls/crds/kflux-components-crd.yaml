@@ -1,0 +1,173 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: components.kflux.dev
+spec:
+  group: kflux.dev
+  scope: Namespaced
+  names:
+    plural: components
+    singular: component
+    kind: Component
+    listKind: ComponentList
+    shortNames:
+      - comp
+      - comps
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Repo
+          type: string
+          description: Git repository URL
+          jsonPath: .spec.source.url
+        - name: Versions
+          type: string
+          description: Component version names
+          jsonPath: .spec.source.versions[*].name
+        - name: ContainerImage
+          type: string
+          description: Container image repository (if set)
+          jsonPath: .spec.containerImage
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: Mock Component resource (revised component model)
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - source
+              x-kubernetes-preserve-unknown-fields: true
+              properties:
+                actions:
+                  type: object
+                  description: Actions a controller would process then remove.
+                  properties:
+                    triggerPushBuild:
+                      type: string
+                    triggerPushBuilds:
+                      type: array
+                      items:
+                        type: string
+                    createPipelineConfigurationPr:
+                      type: object
+                      properties:
+                        allVersions:
+                          type: boolean
+                        version:
+                          type: string
+                        versions:
+                          type: array
+                          items:
+                            type: string
+                      x-kubernetes-preserve-unknown-fields: true
+                  x-kubernetes-preserve-unknown-fields: true
+                skipOffboardingPr:
+                  type: boolean
+                  default: false
+                  description: When true, skip creating an offboarding PR.
+                containerImage:
+                  type: string
+                  description: Container image repository without tag.
+                repositorySettings:
+                  type: object
+                  properties:
+                    commentStrategy:
+                      type: string
+                  x-kubernetes-preserve-unknown-fields: true
+                defaultBuildPipeline:
+                  type: object
+                  description: Default pipeline definition for all versions (mocked, loosely typed).
+                  x-kubernetes-preserve-unknown-fields: true
+                source:
+                  type: object
+                  required:
+                    - url
+                    - versions
+                  properties:
+                    url:
+                      type: string
+                      description: Git repository URL.
+                    dockerfileUri:
+                      type: string
+                      default: Dockerfile
+                      description: Default Dockerfile path for all versions (optional).
+                    versions:
+                      type: array
+                      description: List of all component versions (can be empty).
+                      minItems: 0
+                      items:
+                        type: object
+                        required:
+                          - name
+                          - revision
+                        properties:
+                          name:
+                            type: string
+                            description: User-defined version name.
+                          revision:
+                            type: string
+                            description: Branch or tag for the version.
+                          context:
+                            type: string
+                            default: ""
+                            description: Context directory for the version.
+                          dockerfileUri:
+                            type: string
+                            default: Dockerfile
+                            description: Dockerfile path for the version.
+                          skipBuilds:
+                            type: boolean
+                            default: false
+                            description: When true, disable builds for this version.
+                          buildPipeline:
+                            type: object
+                            description: Version-specific pipeline definition (mocked, loosely typed).
+                            x-kubernetes-preserve-unknown-fields: true
+                        x-kubernetes-preserve-unknown-fields: true
+                  x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              description: Controller-updated status (mocked).
+              properties:
+                message:
+                  type: string
+                pacRepository:
+                  type: string
+                containerImage:
+                  type: string
+                repositorySettings:
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+                versions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      onboardingStatus:
+                        type: string
+                      configurationMergeUrl:
+                        type: string
+                      onboardingTime:
+                        type: string
+                      revision:
+                        type: string
+                      skipBuilds:
+                        type: boolean
+                      message:
+                        type: string
+                    x-kubernetes-preserve-unknown-fields: true
+              x-kubernetes-preserve-unknown-fields: true
+
