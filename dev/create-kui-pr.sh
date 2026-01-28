@@ -269,19 +269,28 @@ if git diff --quiet -- "$PROD_FILE"; then
   exit 0
 fi
 
-# Commit changes
+# Prepare commit info
 SHORT_BASE="$(short_sha "$BASE_SHA")"
 SHORT_TGT="$(short_sha "$TARGET_SHA")"
 COMMIT_MSG="chore: bump konflux-ui (production) ${SHORT_BASE} => ${SHORT_TGT}"
 
-git add "$PROD_FILE"
-git commit -m "$COMMIT_MSG"
-
-# Push or dry-run
+# Dry-run: skip commit and push
 if [[ "$DRY_RUN" == "true" ]]; then
+  log_warn "[DRY RUN] Would commit: $COMMIT_MSG"
   log_warn "[DRY RUN] Would push branch $BRANCH_NAME to $FORK_REPO"
-  log_warn "[DRY RUN] Commit: $COMMIT_MSG"
 else
+  # Configure git identity for CI environments
+  if [[ -z "$(git config user.email)" ]]; then
+    git config user.email "github-actions[bot]@users.noreply.github.com"
+    git config user.name "github-actions[bot]"
+    log_info "Configured git identity for CI"
+  fi
+
+  # Commit changes
+  git add "$PROD_FILE"
+  git commit -m "$COMMIT_MSG"
+
+  # Push to fork
   log_info "Pushing branch to fork: $FORK_REPO"
   if ! git push downstream "$BRANCH_NAME"; then
     log_error "Failed to push branch to $FORK_REPO"
