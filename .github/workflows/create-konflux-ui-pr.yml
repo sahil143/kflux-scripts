@@ -1,48 +1,115 @@
 name: Create Konflux UI PR
 
+# Main orchestrator workflow that:
+# 1. Creates a PR to update Konflux UI in infra-deployments
+# 2. Sends Slack notification on success
+# 3. Closes related Jira issues
+# 4. Sends failure notification if anything fails
+
 on:
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run mode (do not create PR or close Jira issues)'
+        required: false
+        type: boolean
+        default: false
+      skip_jira:
+        description: 'Skip Jira issue closing'
+        required: false
+        type: boolean
+        default: false
+      skip_slack:
+        description: 'Skip Slack notifications'
+        required: false
+        type: boolean
+        default: false
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 0 * * *'  # Daily at midnight UTC
+
+# Repository configuration - override via repository variables
+env:
+  UPSTREAM_REPO: ${{ vars.UPSTREAM_REPO || 'redhat-appstudio/infra-deployments' }}
+  FORK_REPO: ${{ vars.FORK_REPO || 'sahil143/infra-deployments' }}
+  KUI_REPO: ${{ vars.KUI_REPO || 'konflux-ci/konflux-ui' }}
 
 jobs:
+  # =========================
+  # Job 1: Create the PR
+  # =========================
   create-pr:
     runs-on: ubuntu-latest
+    outputs:
+      pr_url: ${{ steps.create_pr.outputs.pr_url }}
+      pr_title: ${{ steps.prepare_pr.outputs.pr_title }}
+      base_sha: ${{ steps.prepare_pr.outputs.base_sha }}
+      target_sha: ${{ steps.prepare_pr.outputs.target_sha }}
+      changelog_content: ${{ steps.prepare_pr.outputs.changelog_content }}
+      branch_name: ${{ steps.prepare_pr.outputs.branch_name }}
+      pr_created: ${{ steps.create_pr.outputs.pr_created }}
+      has_changes: ${{ steps.prepare_pr.outputs.has_changes }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Authenticate GitHub CLI
+      - name: Validate GitHub token
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          echo "${{ secrets.GH_PAT }}" | gh auth login --with-token
-
-      - name: Set environment variables
-        run: |
-          echo "UPSTREAM_REPO=redhat-appstudio/infra-deployments" >> $GITHUB_ENV
-          echo "FORK_REPO=sahil143/infra-deployments" >> $GITHUB_ENV
-          echo "KUI_REPO=konflux-ci/konflux-ui" >> $GITHUB_ENV
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "::error::GH_PAT secret is not set"
+            exit 1
+          fi
+          if ! gh auth status >/dev/null 2>&1; then
+            echo "::error::GitHub authentication failed. Please check GH_PAT secret."
+            exit 1
+          fi
+          echo "✅ GitHub authentication successful"
 
       - name: Run create-kui-pr.sh script
         id: prepare_pr
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          UPSTREAM_REPO: ${{ env.UPSTREAM_REPO }}
+          FORK_REPO: ${{ env.FORK_REPO }}
+          KUI_REPO: ${{ env.KUI_REPO }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
         run: |
+          set -euo pipefail
           chmod +x dev/create-kui-pr.sh
-          dev/create-kui-pr.sh
+          
+          # Run script and capture exit code
+          if ./dev/create-kui-pr.sh; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            EXIT_CODE=$?
+            if [[ $EXIT_CODE -eq 0 ]]; then
+              echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            else
+              exit $EXIT_CODE
+            fi
+          fi
 
       - name: Create Pull Request
-        if: steps.prepare_pr.outputs.branch_name != ''
+        if: steps.prepare_pr.outputs.branch_name != '' && steps.prepare_pr.outputs.has_changes == 'true' && inputs.dry_run != true
         id: create_pr
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          UPSTREAM_REPO="${{ env.UPSTREAM_REPO }}"
-          FORK_REPO="${{ env.FORK_REPO }}"
+          set -euo pipefail
+          
+          UPSTREAM_REPO="${UPSTREAM_REPO}"
+          FORK_REPO="${FORK_REPO}"
           BRANCH_NAME="${{ steps.prepare_pr.outputs.branch_name }}"
           PR_TITLE="${{ steps.prepare_pr.outputs.pr_title }}"
           
-          # Get the fork owner (username before /)
-          FORK_OWNER="${FORK_REPO%%/*}"
+          if [[ -z "$BRANCH_NAME" ]]; then
+            echo "::error::Branch name is empty"
+            exit 1
+          fi
           
-          # Get upstream default branch
+          FORK_OWNER="${FORK_REPO%%/*}"
           BASE_BRANCH=$(gh repo view "$UPSTREAM_REPO" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo main)
           
           echo "Creating PR against ${UPSTREAM_REPO}:${BASE_BRANCH} from ${FORK_OWNER}:${BRANCH_NAME}"
@@ -52,97 +119,162 @@ jobs:
           
           if [[ -n "$EXISTING_PR" ]]; then
             echo "PR already exists: $EXISTING_PR"
-            echo "pr_url=$EXISTING_PR" >> $GITHUB_OUTPUT
+            echo "pr_url=$EXISTING_PR" >> "$GITHUB_OUTPUT"
+            echo "pr_created=false" >> "$GITHUB_OUTPUT"
           else
-            # Create temporary file for PR body
+            # Write PR body to file safely
             PR_BODY_FILE=$(mktemp)
-            cat > "$PR_BODY_FILE" << 'EOF'
+            cat > "$PR_BODY_FILE" << 'CHANGELOG_EOF'
           ${{ steps.prepare_pr.outputs.changelog_content }}
-          EOF
+          CHANGELOG_EOF
+            
+            SAFE_PR_TITLE=$(printf '%s' "$PR_TITLE")
             
             PR_URL=$(gh pr create \
               --repo "$UPSTREAM_REPO" \
               --head "${FORK_OWNER}:${BRANCH_NAME}" \
               --base "$BASE_BRANCH" \
-              --title "$PR_TITLE" \
+              --title "$SAFE_PR_TITLE" \
               --body-file "$PR_BODY_FILE")
             
             rm -f "$PR_BODY_FILE"
             
             echo "Created PR: $PR_URL"
-            echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+            echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+            echo "pr_created=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Output PR URL
-        if: steps.create_pr.outputs.pr_url != ''
+      - name: Generate job summary
+        if: always()
         run: |
-          echo "✅ PR URL: ${{ steps.create_pr.outputs.pr_url }}"
-
-      - name: Send Slack notification
-        if: steps.create_pr.outputs.pr_url != ''
-        run: |
-          PR_URL="${{ steps.create_pr.outputs.pr_url }}"
-          PR_TITLE="${{ steps.prepare_pr.outputs.pr_title }}"
-          BASE_SHA="${{ steps.prepare_pr.outputs.base_sha }}"
-          TARGET_SHA="${{ steps.prepare_pr.outputs.target_sha }}"
-          KUI_REPO="${{ env.KUI_REPO }}"
+          set -euo pipefail
           
-          # Format SHA range for display (shortened)
-          SHORT_BASE="${BASE_SHA:0:7}"
-          SHORT_TARGET="${TARGET_SHA:0:7}"
-          SHA_RANGE="${SHORT_BASE}...${SHORT_TARGET}"
-          
-          # Create JSON payload for Slack
-          PAYLOAD=$(cat <<EOF
           {
-            "text": "New Konflux UI PR Created - @konflux-ui",
-            "blocks": [
-              {
-                "type": "header",
-                "text": {
-                  "type": "plain_text",
-                  "text": "🚀 New Konflux UI PR Created"
-                }
-              },
-              {
-                "type": "section",
-                "fields": [
-                  {
-                    "type": "mrkdwn",
-                    "text": "*PR Title:*\n${PR_TITLE}"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*SHA Range:*\n\`${SHA_RANGE}\`"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*PR URL:*\n<${PR_URL}|View Pull Request>"
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "*Repository:*\n${KUI_REPO}"
-                  }
-                ]
-              },
-              {
-                "type": "section",
-                "text": {
-                  "type": "mrkdwn",
-                  "text": "@konflux-ui Please review the changes in staging cluster.\n\n⚠️ *Note:* This PR deploys changes to production."
-                }
-              }
-            ]
-          }
-          EOF
-          )
+            echo "## 🚀 Konflux UI PR Creation"
+            echo ""
+            
+            if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+              echo "> ⚠️ **DRY RUN MODE** - No PR was created"
+              echo ""
+            fi
+            
+            if [[ -n "${{ steps.prepare_pr.outputs.branch_name }}" ]]; then
+              echo "| Field | Value |"
+              echo "|-------|-------|"
+              echo "| Branch | \`${{ steps.prepare_pr.outputs.branch_name }}\` |"
+              echo "| Base SHA | \`${{ steps.prepare_pr.outputs.base_sha }}\` |"
+              echo "| Target SHA | \`${{ steps.prepare_pr.outputs.target_sha }}\` |"
+              
+              if [[ -n "${{ steps.create_pr.outputs.pr_url }}" ]]; then
+                echo "| PR URL | ${{ steps.create_pr.outputs.pr_url }} |"
+              fi
+            else
+              echo "ℹ️ No changes detected between staging and production."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # =========================
+  # Job 2: Send Slack notification for PR
+  # =========================
+  notify-pr-created:
+    needs: [create-pr]
+    if: |
+      needs.create-pr.outputs.pr_url != '' && 
+      needs.create-pr.outputs.pr_created == 'true' &&
+      inputs.skip_slack != true
+    uses: ./.github/workflows/slack-notification.yml
+    with:
+      notification_type: pr_created
+      pr_url: ${{ needs.create-pr.outputs.pr_url }}
+      pr_title: ${{ needs.create-pr.outputs.pr_title }}
+      sha_range: ${{ needs.create-pr.outputs.base_sha }}...${{ needs.create-pr.outputs.target_sha }}
+      repository: ${{ vars.KUI_REPO || 'konflux-ci/konflux-ui' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # =========================
+  # Job 3: Close Jira issues
+  # =========================
+  close-jira-issues:
+    needs: [create-pr]
+    if: |
+      needs.create-pr.outputs.pr_url != '' && 
+      needs.create-pr.outputs.changelog_content != '' &&
+      inputs.skip_jira != true
+    uses: ./.github/workflows/close-jira-issues.yml
+    with:
+      changelog_content: ${{ needs.create-pr.outputs.changelog_content }}
+      version: ${{ needs.create-pr.outputs.target_sha }}
+      dry_run: ${{ inputs.dry_run || false }}
+      rate_limit: 1
+    secrets:
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+  # =========================
+  # Job 4: Send Slack notification for Jira
+  # =========================
+  notify-jira-closed:
+    needs: [create-pr, close-jira-issues]
+    if: |
+      always() &&
+      needs.close-jira-issues.result == 'success' &&
+      inputs.skip_slack != true &&
+      inputs.dry_run != true
+    uses: ./.github/workflows/slack-notification.yml
+    with:
+      notification_type: jira_closed
+      issues_closed: ${{ needs.close-jira-issues.outputs.issues_closed || '0' }}
+      issues_failed: ${{ needs.close-jira-issues.outputs.issues_failed || '0' }}
+      repository: ${{ vars.KUI_REPO || 'konflux-ci/konflux-ui' }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # =========================
+  # Job 5: Send failure notification
+  # =========================
+  notify-failure:
+    needs: [create-pr, close-jira-issues]
+    if: |
+      always() &&
+      (needs.create-pr.result == 'failure' || needs.close-jira-issues.result == 'failure') &&
+      inputs.skip_slack != true
+    uses: ./.github/workflows/slack-notification.yml
+    with:
+      notification_type: failure
+      repository: ${{ github.repository }}
+      workflow_run_url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    secrets:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # =========================
+  # Job 6: Final summary
+  # =========================
+  summary:
+    needs: [create-pr, close-jira-issues]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate final summary
+        run: |
+          set -euo pipefail
           
-          # Echo the message for now (uncomment curl below when ready to send to Slack)
-          echo "Slack notification payload:"
-          echo "$PAYLOAD"
-          
-          # Send to Slack webhook (commented out for now)
-          # curl -X POST \
-          #   -H 'Content-Type: application/json' \
-          #   -d "$PAYLOAD" \
-          #   "${{ secrets.SLACK_WEBHOOK_URL }}"
+          {
+            echo "## 📊 Workflow Summary"
+            echo ""
+            echo "| Job | Status |"
+            echo "|-----|--------|"
+            echo "| Create PR | ${{ needs.create-pr.result }} |"
+            echo "| Close Jira Issues | ${{ needs.close-jira-issues.result || 'skipped' }} |"
+            echo ""
+            
+            if [[ "${{ needs.create-pr.outputs.pr_url }}" != "" ]]; then
+              echo "### PR Details"
+              echo "- **URL:** ${{ needs.create-pr.outputs.pr_url }}"
+              echo "- **Created:** ${{ needs.create-pr.outputs.pr_created }}"
+            fi
+            
+            echo ""
+            echo "### Jira Issues"
+            echo "- **Closed:** ${{ needs.close-jira-issues.outputs.issues_closed || 'N/A' }}"
+            echo "- **Failed:** ${{ needs.close-jira-issues.outputs.issues_failed || 'N/A' }}"
+          } >> "$GITHUB_STEP_SUMMARY"

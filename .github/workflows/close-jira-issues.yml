@@ -1,0 +1,193 @@
+name: Close Jira Issues
+
+# Reusable workflow for closing Jira issues from changelog
+# Can be called from other workflows using workflow_call
+# Can also be triggered manually for independent use
+
+on:
+  workflow_call:
+    inputs:
+      changelog_file:
+        description: 'Path to changelog file (relative to workspace)'
+        required: false
+        type: string
+        default: ''
+      changelog_content:
+        description: 'Changelog content as string (alternative to file)'
+        required: false
+        type: string
+        default: ''
+      version:
+        description: 'Release version to include in Jira comments'
+        required: false
+        type: string
+        default: ''
+      dry_run:
+        description: 'Dry run mode - do not actually close issues'
+        required: false
+        type: boolean
+        default: false
+      rate_limit:
+        description: 'Seconds to wait between API calls'
+        required: false
+        type: number
+        default: 1
+    secrets:
+      JIRA_API_TOKEN:
+        description: 'Jira API token for authentication'
+        required: true
+    outputs:
+      issues_closed:
+        description: 'Number of issues successfully closed'
+        value: ${{ jobs.close-issues.outputs.issues_closed }}
+      issues_already_closed:
+        description: 'Number of issues already closed'
+        value: ${{ jobs.close-issues.outputs.issues_already_closed }}
+      issues_skipped:
+        description: 'Number of issues skipped (not in Release Pending)'
+        value: ${{ jobs.close-issues.outputs.issues_skipped }}
+      issues_failed:
+        description: 'Number of issues that failed to close'
+        value: ${{ jobs.close-issues.outputs.issues_failed }}
+
+  workflow_dispatch:
+    inputs:
+      changelog_file:
+        description: 'Path to changelog file'
+        required: true
+        type: string
+        default: 'changelog.md'
+      version:
+        description: 'Release version for Jira comments'
+        required: false
+        type: string
+        default: ''
+      dry_run:
+        description: 'Dry run mode'
+        required: false
+        type: boolean
+        default: true
+      rate_limit:
+        description: 'Seconds between API calls'
+        required: false
+        type: number
+        default: 1
+
+env:
+  JIRA_URL: ${{ vars.JIRA_URL || 'https://issues.redhat.com' }}
+
+jobs:
+  close-issues:
+    runs-on: ubuntu-latest
+    outputs:
+      issues_closed: ${{ steps.close.outputs.issues_closed }}
+      issues_already_closed: ${{ steps.close.outputs.issues_already_closed }}
+      issues_skipped: ${{ steps.close.outputs.issues_skipped }}
+      issues_failed: ${{ steps.close.outputs.issues_failed }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          
+          CHANGELOG_FILE="${{ inputs.changelog_file }}"
+          CHANGELOG_CONTENT="${{ inputs.changelog_content }}"
+          
+          if [[ -z "$CHANGELOG_FILE" && -z "$CHANGELOG_CONTENT" ]]; then
+            echo "::error::Either changelog_file or changelog_content must be provided"
+            exit 1
+          fi
+          
+          echo "✅ Input validation passed"
+
+      - name: Prepare changelog file
+        id: prepare
+        run: |
+          set -euo pipefail
+          
+          CHANGELOG_FILE="${{ inputs.changelog_file }}"
+          CHANGELOG_CONTENT="${{ inputs.changelog_content }}"
+          
+          # If changelog content is provided, write it to a temp file
+          if [[ -n "$CHANGELOG_CONTENT" ]]; then
+            TEMP_CHANGELOG="$(mktemp)"
+            printf '%s' "$CHANGELOG_CONTENT" > "$TEMP_CHANGELOG"
+            echo "changelog_path=$TEMP_CHANGELOG" >> "$GITHUB_OUTPUT"
+            echo "📝 Using changelog content from input"
+          elif [[ -n "$CHANGELOG_FILE" ]]; then
+            if [[ ! -f "$CHANGELOG_FILE" ]]; then
+              echo "::error::Changelog file not found: $CHANGELOG_FILE"
+              exit 1
+            fi
+            echo "changelog_path=$CHANGELOG_FILE" >> "$GITHUB_OUTPUT"
+            echo "📝 Using changelog file: $CHANGELOG_FILE"
+          fi
+
+      - name: Close Jira issues
+        id: close
+        env:
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_URL: ${{ env.JIRA_URL }}
+        run: |
+          set -euo pipefail
+          
+          CHANGELOG_PATH="${{ steps.prepare.outputs.changelog_path }}"
+          VERSION="${{ inputs.version }}"
+          DRY_RUN="${{ inputs.dry_run }}"
+          RATE_LIMIT="${{ inputs.rate_limit }}"
+          
+          # Build command arguments
+          ARGS=(
+            --changelog "$CHANGELOG_PATH"
+            --rate-limit "$RATE_LIMIT"
+          )
+          
+          if [[ -n "$VERSION" ]]; then
+            ARGS+=(--version "$VERSION")
+          fi
+          
+          if [[ "$DRY_RUN" == "true" ]]; then
+            ARGS+=(--dry-run)
+          fi
+          
+          echo "🚀 Running close_issues.sh with args: ${ARGS[*]}"
+          
+          # Make script executable and run
+          chmod +x dev/close_issues.sh
+          
+          # Run the script (it handles its own error codes)
+          ./dev/close_issues.sh "${ARGS[@]}" || {
+            EXIT_CODE=$?
+            echo "::warning::close_issues.sh exited with code $EXIT_CODE"
+          }
+          
+          echo "✅ Jira issue processing complete"
+
+      - name: Generate summary
+        if: always()
+        run: |
+          set -euo pipefail
+          
+          DRY_RUN="${{ inputs.dry_run }}"
+          VERSION="${{ inputs.version }}"
+          
+          {
+            echo "## 🎫 Jira Issue Closer Results"
+            echo ""
+            
+            if [[ "$DRY_RUN" == "true" ]]; then
+              echo "> ⚠️ **DRY RUN MODE** - No issues were actually closed"
+              echo ""
+            fi
+            
+            if [[ -n "$VERSION" ]]; then
+              echo "**Version:** \`$VERSION\`"
+              echo ""
+            fi
+            
+            echo "**Jira URL:** ${{ env.JIRA_URL }}"
+            echo ""
+            echo "See job logs for detailed results."
+          } >> "$GITHUB_STEP_SUMMARY"

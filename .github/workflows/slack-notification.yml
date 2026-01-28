@@ -1,0 +1,347 @@
+name: Slack Notification
+
+# Reusable workflow for sending Slack notifications
+# Can be called from other workflows using workflow_call
+
+on:
+  workflow_call:
+    inputs:
+      notification_type:
+        description: 'Type of notification: pr_created, jira_closed, failure, custom'
+        required: true
+        type: string
+      pr_url:
+        description: 'Pull Request URL (for pr_created type)'
+        required: false
+        type: string
+        default: ''
+      pr_title:
+        description: 'Pull Request title (for pr_created type)'
+        required: false
+        type: string
+        default: ''
+      sha_range:
+        description: 'SHA range (e.g., abc123...def456)'
+        required: false
+        type: string
+        default: ''
+      repository:
+        description: 'Repository name (owner/repo)'
+        required: false
+        type: string
+        default: ''
+      issues_closed:
+        description: 'Number of Jira issues closed (for jira_closed type)'
+        required: false
+        type: string
+        default: '0'
+      issues_failed:
+        description: 'Number of Jira issues that failed to close'
+        required: false
+        type: string
+        default: '0'
+      custom_message:
+        description: 'Custom message text (for custom type)'
+        required: false
+        type: string
+        default: ''
+      workflow_run_url:
+        description: 'URL to the workflow run (for failure type)'
+        required: false
+        type: string
+        default: ''
+      mention_group:
+        description: 'Slack group to mention (e.g., @konflux-ui)'
+        required: false
+        type: string
+        default: '@konflux-ui'
+    secrets:
+      SLACK_WEBHOOK_URL:
+        description: 'Slack Incoming Webhook URL'
+        required: true
+
+jobs:
+  send-notification:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          
+          NOTIFICATION_TYPE="${{ inputs.notification_type }}"
+          
+          case "$NOTIFICATION_TYPE" in
+            pr_created|jira_closed|failure|custom)
+              echo "✅ Valid notification type: $NOTIFICATION_TYPE"
+              ;;
+            *)
+              echo "::error::Invalid notification_type: $NOTIFICATION_TYPE"
+              echo "Valid types: pr_created, jira_closed, failure, custom"
+              exit 1
+              ;;
+          esac
+
+      - name: Send PR Created notification
+        if: inputs.notification_type == 'pr_created'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          PR_URL: ${{ inputs.pr_url }}
+          PR_TITLE: ${{ inputs.pr_title }}
+          SHA_RANGE: ${{ inputs.sha_range }}
+          REPOSITORY: ${{ inputs.repository }}
+          MENTION_GROUP: ${{ inputs.mention_group }}
+        run: |
+          set -euo pipefail
+          
+          if [[ -z "${SLACK_WEBHOOK_URL:-}" ]]; then
+            echo "::warning::SLACK_WEBHOOK_URL not configured, skipping notification"
+            exit 0
+          fi
+          
+          # Build JSON payload using jq for proper escaping
+          PAYLOAD=$(jq -n \
+            --arg pr_title "$PR_TITLE" \
+            --arg sha_range "$SHA_RANGE" \
+            --arg pr_url "$PR_URL" \
+            --arg repository "$REPOSITORY" \
+            --arg mention "$MENTION_GROUP" \
+            '{
+              "text": ("New Konflux UI PR Created - " + $mention),
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "🚀 New Konflux UI PR Created",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": ("*PR Title:*\n" + $pr_title)
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": ("*SHA Range:*\n`" + $sha_range + "`")
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": ("*PR URL:*\n<" + $pr_url + "|View Pull Request>")
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": ("*Repository:*\n" + $repository)
+                    }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ($mention + " Please review the changes in staging cluster.\n\n⚠️ *Note:* This PR deploys changes to production.")
+                  }
+                }
+              ]
+            }')
+          
+          echo "Sending PR created notification..."
+          
+          HTTP_CODE=$(curl -s -o /tmp/slack_response.txt -w "%{http_code}" \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" \
+            "$SLACK_WEBHOOK_URL")
+          
+          if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+            echo "✅ Slack notification sent successfully"
+          else
+            echo "::warning::Slack notification failed with HTTP $HTTP_CODE"
+            cat /tmp/slack_response.txt || true
+            exit 1
+          fi
+
+      - name: Send Jira Closed notification
+        if: inputs.notification_type == 'jira_closed'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          ISSUES_CLOSED: ${{ inputs.issues_closed }}
+          ISSUES_FAILED: ${{ inputs.issues_failed }}
+          REPOSITORY: ${{ inputs.repository }}
+          MENTION_GROUP: ${{ inputs.mention_group }}
+        run: |
+          set -euo pipefail
+          
+          if [[ -z "${SLACK_WEBHOOK_URL:-}" ]]; then
+            echo "::warning::SLACK_WEBHOOK_URL not configured, skipping notification"
+            exit 0
+          fi
+          
+          # Determine emoji based on results
+          if [[ "$ISSUES_FAILED" -gt 0 ]]; then
+            EMOJI="⚠️"
+            STATUS="with issues"
+          else
+            EMOJI="✅"
+            STATUS="successfully"
+          fi
+          
+          PAYLOAD=$(jq -n \
+            --arg closed "$ISSUES_CLOSED" \
+            --arg failed "$ISSUES_FAILED" \
+            --arg repository "$REPOSITORY" \
+            --arg emoji "$EMOJI" \
+            --arg status "$STATUS" \
+            '{
+              "text": ("Jira Issues Closed " + $status),
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": ($emoji + " Jira Issues Closed " + $status),
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": ("*Issues Closed:*\n" + $closed)
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": ("*Issues Failed:*\n" + $failed)
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": ("*Repository:*\n" + $repository)
+                    }
+                  ]
+                }
+              ]
+            }')
+          
+          echo "Sending Jira closed notification..."
+          
+          HTTP_CODE=$(curl -s -o /tmp/slack_response.txt -w "%{http_code}" \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" \
+            "$SLACK_WEBHOOK_URL")
+          
+          if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+            echo "✅ Slack notification sent successfully"
+          else
+            echo "::warning::Slack notification failed with HTTP $HTTP_CODE"
+            cat /tmp/slack_response.txt || true
+            exit 1
+          fi
+
+      - name: Send Failure notification
+        if: inputs.notification_type == 'failure'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          WORKFLOW_RUN_URL: ${{ inputs.workflow_run_url }}
+          REPOSITORY: ${{ inputs.repository }}
+          MENTION_GROUP: ${{ inputs.mention_group }}
+        run: |
+          set -euo pipefail
+          
+          if [[ -z "${SLACK_WEBHOOK_URL:-}" ]]; then
+            echo "::warning::SLACK_WEBHOOK_URL not configured, skipping notification"
+            exit 0
+          fi
+          
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPOSITORY" \
+            --arg run_url "$WORKFLOW_RUN_URL" \
+            --arg mention "$MENTION_GROUP" \
+            '{
+              "text": "❌ Workflow Failed",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "❌ Workflow Failed",
+                    "emoji": true
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": ("*Repository:*\n" + $repo)
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": ("*Workflow Run:*\n<" + $run_url + "|View Details>")
+                    }
+                  ]
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ($mention + " Please check the workflow logs for more details.")
+                  }
+                }
+              ]
+            }')
+          
+          echo "Sending failure notification..."
+          
+          HTTP_CODE=$(curl -s -o /tmp/slack_response.txt -w "%{http_code}" \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" \
+            "$SLACK_WEBHOOK_URL")
+          
+          if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+            echo "✅ Slack notification sent successfully"
+          else
+            echo "::warning::Slack notification failed with HTTP $HTTP_CODE"
+            cat /tmp/slack_response.txt || true
+            exit 1
+          fi
+
+      - name: Send Custom notification
+        if: inputs.notification_type == 'custom'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          CUSTOM_MESSAGE: ${{ inputs.custom_message }}
+        run: |
+          set -euo pipefail
+          
+          if [[ -z "${SLACK_WEBHOOK_URL:-}" ]]; then
+            echo "::warning::SLACK_WEBHOOK_URL not configured, skipping notification"
+            exit 0
+          fi
+          
+          if [[ -z "${CUSTOM_MESSAGE:-}" ]]; then
+            echo "::error::custom_message is required for custom notification type"
+            exit 1
+          fi
+          
+          PAYLOAD=$(jq -n --arg text "$CUSTOM_MESSAGE" '{"text": $text}')
+          
+          echo "Sending custom notification..."
+          
+          HTTP_CODE=$(curl -s -o /tmp/slack_response.txt -w "%{http_code}" \
+            -X POST \
+            -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" \
+            "$SLACK_WEBHOOK_URL")
+          
+          if [[ "$HTTP_CODE" -ge 200 && "$HTTP_CODE" -lt 300 ]]; then
+            echo "✅ Slack notification sent successfully"
+          else
+            echo "::warning::Slack notification failed with HTTP $HTTP_CODE"
+            cat /tmp/slack_response.txt || true
+            exit 1
+          fi
