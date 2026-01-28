@@ -1,0 +1,230 @@
+---
+alwaysApply: false
+---
+# Agent Workflow Rules
+
+## MANDATORY: Execute These Steps In Order
+
+You are an AI coding agent. You MUST follow these rules without exception.
+
+---
+
+## RULE 1: Session Initialization (DO THIS FIRST)
+
+Before writing ANY code, you MUST execute these commands:
+
+```bash
+# Step 1: Read all cursor rules
+find .cursor/rules -type f \( -name "*.md" -o -name "*.mdc" \) -exec cat {} \;
+
+# Step 2: Read progress file
+cat PROGRESS.md 2>/dev/null || echo "PROGRESS.md not found - will create"
+
+# Step 3: Read tasks file
+cat tasks.json 2>/dev/null || echo "tasks.json not found - will create"
+
+# Step 4: Check git state
+git log --oneline -10
+git status
+```
+
+**VIOLATION:** Starting to code without completing these steps is a critical error.
+
+---
+
+## RULE 2: Tasks.json is the Source of Truth
+
+All work MUST be driven by `tasks.json`. 
+
+### Structure:
+```json
+{
+  "feature": "Feature Name",
+  "created": "ISO timestamp",
+  "tasks": [
+    {
+      "id": "task-001",
+      "category": "functional|setup|refactor|test|docs",
+      "description": "Clear description of the task",
+      "steps": [
+        "Step 1 to complete this task",
+        "Step 2 to complete this task",
+        "Verification step"
+      ],
+      "passes": false,
+      "commit": null,
+      "notes": null
+    }
+  ]
+}
+```
+
+### Rules:
+- **NEVER** delete or modify task descriptions
+- **ONLY** update: `passes`, `commit`, `notes` fields
+- **NEVER** mark `passes: true` without verification
+- Work on tasks in order (lowest incomplete ID first)
+
+---
+
+## RULE 3: One Task at a Time
+
+You MUST:
+1. Select the first task where `passes: false`
+2. Complete ALL steps listed in that task
+3. Verify the task works
+4. Update `tasks.json` with `passes: true` and commit hash
+5. Update `PROGRESS.md` with completion details
+6. Wait for review of the code and approval
+7. ONLY THEN move to next task
+
+**VIOLATION:** Working on multiple tasks simultaneously is forbidden.
+
+---
+
+## RULE 4: Progress.md Updates Are Mandatory
+
+After EVERY task completion:
+```markdown
+## [timestamp] - Task [ID] Completed
+
+**Task:** [description]
+**Commit:** [hash] if available
+**Files Changed:**
+- file1.ts - [what changed]
+- file2.ts - [what changed]
+
+**Implementation details**
+
+**Verification:** [how you verified it works]
+```
+
+---
+
+## RULE 5: Context Limit Protocol
+
+When you sense context is running low (long conversation, slow responses):
+
+### STOP IMMEDIATELY and execute:
+
+1. **Save current state to PROGRESS.md:**
+```markdown
+## ⚠️ CONTEXT HANDOFF - [timestamp]
+
+### Incomplete Task
+- **Task ID:** [id]
+- **Description:** [desc]
+- **Progress:** [what's done]
+- **Remaining:** [what's left]
+
+### Uncommitted Changes
+[list all modified files and changes]
+
+### Resume Instructions
+1. [Exact first step]
+2. [Exact second step]
+3. [Exact third step]
+
+### DO NOT
+- [Specific thing to avoid]
+```
+
+2. **Suggest user to commit all work:**
+
+3. **Tell the user:**
+```
+⚠️ Context limit approaching. Progress saved to PROGRESS.md.
+Start new chat using `/continue` command
+```
+
+---
+
+## RULE 6: Verification Before Marking Complete
+
+A task can ONLY be marked `passes: true` if:
+
+1. All steps in the task are completed
+2. Code compiles without errors
+3. Feature works when manually tested
+4. No regressions in existing functionality
+
+**VIOLATION:** Marking tasks complete without verification is strictly forbidden.
+
+---
+
+## RULE 7: Git Commit Format
+
+Every commit MUST follow conventional commits:
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+Example:
+```
+fix(ActivityTab): Add pipeline runs list page
+
+- created list page for pipeline runs
+- Added files for pipeline runs
+- Updated API routes with auth middleware
+
+Closes: jira-id
+```
+
+---
+
+## RULE 8: No Assumptions
+
+Before writing code, you MUST verify:
+- [ ] File exists: `ls -la path/to/file`
+- [ ] Package exists: `grep "package" package.json`
+- [ ] Type/Interface exists: `grep -r -E "type Name|interface Name" --include="*.ts"`
+- [ ] Function exists: `grep -r -E "function name|const name\s*=[^=]*=>" --include="*.ts"`
+
+**VIOLATION:** Assuming something exists without checking causes hallucinations.
+
+---
+
+## RULE 9: Error Recovery
+
+If something breaks:
+1. **STOP** - Don't try to fix blindly
+2. **Diagnose** - Read the actual error
+3. **Recover** - `git checkout` or `git stash` if needed
+4. **Document** - Add to PROGRESS.md what went wrong
+5. **Retry** - Try a different approach
+
+---
+
+## RULE 10: User Plan Approval
+
+When given a new feature:
+1. Create `tasks.json` with proposed tasks
+2. Present plan to user in this format:
+```markdown
+## Proposed Tasks for: [Feature Name]
+
+| ID | Category | Description |
+|----|----------|-------------|
+| 001 | setup | [desc] |
+| 002 | functional | [desc] |
+
+**Estimated tasks:** [N]
+**Please confirm or request changes.**
+```
+3. **WAIT** for user confirmation
+4. Only proceed after explicit approval
+
+---
+
+## Quick Reference
+
+| Action | Command |
+|--------|---------|
+| Start session | `cat PROGRESS.md && cat tasks.json` |
+| After task | Update tasks.json → Update PROGRESS.md → git commit |
+| Before context limit | Save to PROGRESS.md → git commit → notify user |
+| On error | git checkout/stash → document → retry |
